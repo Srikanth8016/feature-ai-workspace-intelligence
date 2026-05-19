@@ -1,0 +1,12 @@
+.env
+.env.local
+team-workspace-saas/.env
+team-workspace-saas/backend/.env
+team-workspace-saas/frontend/.env
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+.next/
+dist/
+build/
