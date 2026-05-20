@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Cookies from "js-cookie";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 
@@ -35,7 +35,7 @@ const getPriorityColor = (priority: string) => {
   }
 };
 
-function TaskCard({ task, onUpload, role, onDelete }: any) {
+function TaskCard({ task, onUpload, role, onDelete, members, onTaskClick }: any) {
   const [localFile, setLocalFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -109,6 +109,13 @@ function TaskCard({ task, onUpload, role, onDelete }: any) {
     }
   };
 
+  useEffect(() => {
+    if (showComments) {
+      loadComments();
+      loadActivity();
+    }
+  }, [task]);
+
   return (
     <div className="pl-1.5 space-y-3">
       <div className="flex justify-between items-start gap-4">
@@ -116,6 +123,15 @@ function TaskCard({ task, onUpload, role, onDelete }: any) {
           {task.title}
         </h3>
         <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => onTaskClick?.(task)}
+            className="text-zinc-500 hover:text-violet-400 p-1 rounded-lg transition-colors bg-zinc-950/20 hover:bg-violet-500/10 border border-zinc-800/40 hover:border-violet-500/20"
+            title="Edit Task"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          </button>
           {(role === "admin" || role === "owner") && (
             <button
               onClick={() => onDelete(task.id)}
@@ -308,13 +324,13 @@ function TaskCard({ task, onUpload, role, onDelete }: any) {
           </svg>
           {new Date(task.due_date).toLocaleDateString()}
         </span>
-        <span>Assignee: {task.assigned_to}</span>
+        <span>Assignee: {members && Array.isArray(members) ? (members.find((m: any) => m.id === task.assigned_to)?.username || "Unassigned") : "Unassigned"}</span>
       </div>
     </div>
   );
 }
 
-export default function KanbanBoard({ tasks, onDragEnd, onUpload, role, onTaskDelete }: any) {
+export default function KanbanBoard({ tasks, onDragEnd, onUpload, role, onTaskDelete, members, onTaskClick }: any) {
   return (
     <DragDropContext onDragEnd={onDragEnd}>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
@@ -363,7 +379,7 @@ export default function KanbanBoard({ tasks, onDragEnd, onUpload, role, onTaskDe
                             {/* Accent Side Line */}
                             <div className={`absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b ${getColumnColor(column)}`} />
 
-                            <TaskCard task={task} onUpload={onUpload} role={role} onDelete={onTaskDelete} />
+                            <TaskCard task={task} onUpload={onUpload} role={role} onDelete={onTaskDelete} members={members} onTaskClick={onTaskClick} />
                           </div>
                         )}
                       </Draggable>

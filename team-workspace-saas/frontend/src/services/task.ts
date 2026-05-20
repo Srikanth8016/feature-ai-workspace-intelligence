@@ -77,3 +77,20 @@ export const getTaskActivity = async (
   );
   return response.data;
 };
+
+export const updateTask = async (
+  token: string,
+  taskId: number,
+  taskData: any
+) => {
+  const response = await api.put(
+    `/tasks/${taskId}`,
+    taskData,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+  return response.data;
+};

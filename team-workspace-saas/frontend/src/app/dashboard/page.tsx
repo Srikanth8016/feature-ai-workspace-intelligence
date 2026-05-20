@@ -6,12 +6,12 @@ import Cookies from "js-cookie";
 import { createWorkspace, getWorkspaces, getWorkspaceMembers, updateWorkspaceMemberRole, removeWorkspaceMember } from "@/services/workspace";
 import { getCurrentUser, updateCurrentUser } from "@/services/user";
 import { createProject, getProjects } from "@/services/project";
-import { createTask, getTasks, updateTaskStatus, deleteTask } from "@/services/task";
+import { createTask, getTasks, updateTaskStatus, deleteTask, updateTask } from "@/services/task";
 import { uploadFile } from "@/services/upload";
 import { getNotifications, markNotificationAsRead, deleteNotification } from "@/services/notification";
 import { inviteUser, getPendingInvitations, acceptInvitation } from "@/services/invitation";
 import { getWorkspaceAnalytics } from "@/services/analytics";
-import { generateAITasks, summarizeWorkspaceProgress, generateAISprintPlan } from "@/services/ai";
+import { generateAITasks, summarizeWorkspaceProgress, generateAISprintPlan, sendAIChatMessage, predictWorkspaceRisks, parseMeetingNotes } from "@/services/ai";
 import KanbanBoard from "@/components/KanbanBoard";
 
 export default function DashboardPage() {
@@ -45,6 +45,61 @@ export default function DashboardPage() {
 
   // Task Assignee State
   const [taskAssignedTo, setTaskAssignedTo] = useState<number | "">("");
+  const [taskPriority, setTaskPriority] = useState("high");
+  const [taskDueDate, setTaskDueDate] = useState("");
+
+  // Task Editing states
+  const [selectedEditingTask, setSelectedEditingTask] = useState<any | null>(null);
+  const [editTaskTitle, setEditTaskTitle] = useState("");
+  const [editTaskDescription, setEditTaskDescription] = useState("");
+  const [editTaskStatus, setEditTaskStatus] = useState("todo");
+  const [editTaskPriority, setEditTaskPriority] = useState("high");
+  const [editTaskDueDate, setEditTaskDueDate] = useState("");
+  const [editTaskAssignedTo, setEditTaskAssignedTo] = useState<number | "">("");
+  const [isUpdatingTask, setIsUpdatingTask] = useState(false);
+
+  useEffect(() => {
+    if (selectedEditingTask) {
+      setEditTaskTitle(selectedEditingTask.title || "");
+      setEditTaskDescription(selectedEditingTask.description || "");
+      setEditTaskStatus(selectedEditingTask.status || "todo");
+      setEditTaskPriority(selectedEditingTask.priority || "high");
+      setEditTaskDueDate(
+        selectedEditingTask.due_date
+          ? new Date(selectedEditingTask.due_date).toISOString().split("T")[0]
+          : ""
+      );
+      setEditTaskAssignedTo(selectedEditingTask.assigned_to || "");
+    }
+  }, [selectedEditingTask]);
+
+  const handleUpdateTask = async () => {
+    const token = Cookies.get("token");
+    if (!token || !selectedEditingTask) return;
+    setIsUpdatingTask(true);
+    try {
+      await updateTask(token, selectedEditingTask.id, {
+        title: editTaskTitle,
+        description: editTaskDescription,
+        status: editTaskStatus,
+        priority: editTaskPriority,
+        due_date: editTaskDueDate ? new Date(editTaskDueDate) : null,
+        assigned_to: editTaskAssignedTo ? Number(editTaskAssignedTo) : null
+      });
+      setSelectedEditingTask(null);
+      if (selectedProject) {
+        fetchTasks(selectedProject);
+      }
+      if (selectedWorkspace) {
+        fetchAnalyticsData(selectedWorkspace);
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to update task details.");
+    } finally {
+      setIsUpdatingTask(false);
+    }
+  };
 
   // Analytics States
   const [analytics, setAnalytics] = useState<any>(null);
@@ -68,6 +123,23 @@ export default function DashboardPage() {
   const [aiSprintPrompt, setAiSprintPrompt] = useState("");
   const [aiSprintResult, setAiSprintResult] = useState("");
   const [aiSprintLoading, setAiSprintLoading] = useState(false);
+
+  // AI Chat Assistant States
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<Array<{ sender: 'user' | 'ai'; text: string }>>([
+    { sender: 'ai', text: "Hello! I am your AI Workspace Assistant. Ask me anything about your tasks, projects, or milestones!" }
+  ]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+
+  // AI Predictive Risk Assessor States
+  const [aiRiskResult, setAiRiskResult] = useState("");
+  const [aiRiskLoading, setAiRiskLoading] = useState(false);
+
+  // AI Meeting Action Item Parser States
+  const [aiMeetingPrompt, setAiMeetingPrompt] = useState("");
+  const [aiMeetingResult, setAiMeetingResult] = useState("");
+  const [aiMeetingLoading, setAiMeetingLoading] = useState(false);
 
   const fetchData = async () => {
     const token = Cookies.get("token");
@@ -243,14 +315,16 @@ export default function DashboardPage() {
       title: taskTitle,
       description: taskDescription,
       status: "todo",
-      priority: "high",
-      due_date: new Date(),
+      priority: taskPriority,
+      due_date: taskDueDate ? new Date(taskDueDate) : new Date(),
       project_id: selectedProject,
       assigned_to: taskAssignedTo ? Number(taskAssignedTo) : null
     });
 
     setTaskTitle("");
     setTaskDescription("");
+    setTaskPriority("high");
+    setTaskDueDate("");
     setTaskAssignedTo("");
     fetchTasks(selectedProject);
   };
@@ -431,6 +505,142 @@ export default function DashboardPage() {
       alert(err.response?.data?.detail || "AI sprint planning failed.");
     } finally {
       setAiSprintLoading(false);
+    }
+  };
+
+  const handleSendChatMessage = async () => {
+    if (!chatInput.trim() || !selectedWorkspace) return;
+    const userMsg = chatInput.trim();
+    setChatInput("");
+    setChatMessages((prev) => [...prev, { sender: 'user', text: userMsg }]);
+    setChatLoading(true);
+
+    const token = Cookies.get("token");
+    try {
+      const data = await sendAIChatMessage(token || "", userMsg, selectedWorkspace);
+      setChatMessages((prev) => [...prev, { sender: 'ai', text: data.response }]);
+    } catch (err: any) {
+      console.error(err);
+      setChatMessages((prev) => [
+        ...prev, 
+        { sender: 'ai', text: "Sorry, I had trouble resolving that query. Please try again!" }
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const handlePredictRisks = async () => {
+    const token = Cookies.get("token");
+    if (!token || !selectedWorkspace) return;
+    setAiRiskLoading(true);
+    try {
+      const data = await predictWorkspaceRisks(token, selectedWorkspace);
+      setAiRiskResult(data.response);
+    } catch (err: any) {
+      console.error(err);
+      alert(err.response?.data?.detail || "AI risk assessor execution failed.");
+    } finally {
+      setAiRiskLoading(false);
+    }
+  };
+
+  const handleParseMeeting = async () => {
+    const token = Cookies.get("token");
+    if (!token || !aiMeetingPrompt) return;
+    setAiMeetingLoading(true);
+    try {
+      const data = await parseMeetingNotes(token, aiMeetingPrompt);
+      setAiMeetingResult(data.response);
+    } catch (err: any) {
+      console.error(err);
+      alert(err.response?.data?.detail || "AI meeting note extraction failed.");
+    } finally {
+      setAiMeetingLoading(false);
+    }
+  };
+
+  const handleImportTasks = async (text: string) => {
+    const token = Cookies.get("token");
+    if (!token || !selectedProject) {
+      alert("Please select and open a Project first before importing AI tasks!");
+      return;
+    }
+
+    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+    const tasksToCreate: Array<{ title: string; description: string; priority: string }> = [];
+
+    // Match numbered list items (e.g. "1. Secure JWT auth") or checklists (e.g. "- [ ] Task: ...")
+    const taskRegex = /^(?:-?\s*\[\s*[x ]?\s*\]|-|\d+\.)\s*(?:\*\*Task\*\*:\s*|\*\*\s*|\*\s*|)?(.*?)(?:\s*\[Priority:\s*(\w+)\])?$/i;
+
+    for (const line of lines) {
+      const match = line.match(taskRegex);
+      if (match) {
+        let title = match[1].trim();
+        title = title.replace(/\*\*/g, "").trim();
+
+        let priority = "medium";
+        if (match[2]) {
+          const matchedPriority = match[2].toLowerCase();
+          if (["high", "medium", "low"].includes(matchedPriority)) {
+            priority = matchedPriority;
+          }
+        } else if (line.toLowerCase().includes("priority: high") || line.toLowerCase().includes("[high]")) {
+          priority = "high";
+        } else if (line.toLowerCase().includes("priority: low") || line.toLowerCase().includes("[low]")) {
+          priority = "low";
+        }
+
+        if (title) {
+          tasksToCreate.push({
+            title,
+            description: "Automatically parsed and imported from AI Workspace Intelligence Hub",
+            priority
+          });
+        }
+      } else {
+        const cleanedLine = line.replace(/^\s*[-*#\d.]+\s*/, "").replace(/\*\*/g, "").trim();
+        if (cleanedLine && cleanedLine.length > 5 && !cleanedLine.startsWith("Based on") && !cleanedLine.startsWith("Click '")) {
+          tasksToCreate.push({
+            title: cleanedLine,
+            description: "Automatically parsed and imported from AI Workspace Intelligence Hub",
+            priority: "medium"
+          });
+        }
+      }
+    }
+
+    if (tasksToCreate.length === 0) {
+      alert("Could not identify any structured tasks to import from this text.");
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to batch-import ${tasksToCreate.length} tasks into the active project backlog?`)) {
+      return;
+    }
+
+    try {
+      await Promise.all(
+        tasksToCreate.map(t =>
+          createTask(token, {
+            title: t.title,
+            description: t.description,
+            status: "todo",
+            priority: t.priority,
+            due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Default to 7 days from now
+            project_id: selectedProject,
+            assigned_to: null
+          })
+        )
+      );
+      alert(`Successfully imported ${tasksToCreate.length} tasks into the To Do backlog column!`);
+      fetchTasks(selectedProject);
+      if (selectedWorkspace) {
+        fetchAnalyticsData(selectedWorkspace);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Failed to import some or all tasks.");
     }
   };
 
@@ -680,30 +890,90 @@ export default function DashboardPage() {
 
           </div>
 
+          {/* Row 2: Advanced Scanners */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6 pt-6 border-t border-zinc-800/60">
+            
+            {/* Tool 4: AI Predictive Risk Assessor */}
+            <div className="p-5 rounded-xl bg-zinc-950/30 border border-zinc-800/80 flex flex-col justify-between min-h-[220px]">
+              <div>
+                <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-widest mb-1.5 flex items-center gap-1.5 font-sans">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  AI Predictive Risk Assessor
+                </h4>
+                <p className="text-[10px] text-zinc-500 font-light mb-3">Scan tasks to detect bottleneck risks and workload overloads</p>
+                <div className="py-8 px-4 rounded-lg bg-zinc-950/20 border border-zinc-850/50 border-dashed text-center">
+                  <p className="text-[10px] text-zinc-500 italic">Click assess below to check active project health anomalies.</p>
+                </div>
+              </div>
+              <button
+                onClick={handlePredictRisks}
+                disabled={aiRiskLoading || !selectedWorkspace}
+                className="w-full mt-3 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-amber-600 hover:bg-amber-500 text-white transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-amber-600/10"
+              >
+                {aiRiskLoading ? "Assessing..." : "Assess Project Risks"}
+              </button>
+            </div>
+
+            {/* Tool 5: AI Meeting Notes Parser */}
+            <div className="p-5 rounded-xl bg-zinc-950/30 border border-zinc-800/80 flex flex-col justify-between min-h-[220px]">
+              <div>
+                <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-widest mb-1.5 flex items-center gap-1.5 font-sans">
+                  <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />
+                  AI Meeting Action Item Parser
+                </h4>
+                <p className="text-[10px] text-zinc-500 font-light mb-3">Convert pasted meeting transcripts into structured Kanban checklist backlogs</p>
+                <textarea
+                  className="w-full px-3 py-2 bg-zinc-950/40 border border-zinc-850 focus:border-cyan-500 outline-none text-white text-[11px] placeholder-zinc-650 rounded-lg transition-all font-light resize-none"
+                  rows={3}
+                  placeholder="Paste Zoom or Google Meet transcript notes here..."
+                  value={aiMeetingPrompt}
+                  onChange={(e) => setAiMeetingPrompt(e.target.value)}
+                />
+              </div>
+              <button
+                onClick={handleParseMeeting}
+                disabled={aiMeetingLoading || !aiMeetingPrompt}
+                className="w-full mt-3 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-cyan-600 hover:bg-cyan-500 text-white transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-cyan-600/10"
+              >
+                {aiMeetingLoading ? "Extracting..." : "Parse Action Items"}
+              </button>
+            </div>
+
+          </div>
+
           {/* Results Visualizer Section */}
-          {(aiResult || aiSummaryResult || aiSprintResult) && (
-            <div className="mt-6 border-t border-zinc-800/80 pt-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+          {(aiResult || aiSummaryResult || aiSprintResult || aiRiskResult || aiMeetingResult) && (
+            <div className="mt-6 border-t border-zinc-800/80 pt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
               
-              {/* Result 1 */}
+              {/* Result 1: Tasks */}
               {aiResult ? (
                 <div className="p-4 rounded-lg bg-zinc-950/40 border border-zinc-850 text-[11px] text-zinc-300 whitespace-pre-wrap leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 border-dashed">
                   <div className="flex justify-between items-center pb-2 border-b border-zinc-900 mb-2 text-[9px] text-indigo-400 uppercase tracking-widest font-bold font-sans">
                     <span>Task Suggestions</span>
-                    <button 
-                      onClick={() => {
-                        navigator.clipboard.writeText(aiResult);
-                        alert("Task list copied!");
-                      }}
-                      className="hover:underline"
-                    >
-                      Copy
-                    </button>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => handleImportTasks(aiResult)}
+                        className="hover:underline text-indigo-400 font-bold"
+                      >
+                        Import to Project
+                      </button>
+                      <span className="text-zinc-750">|</span>
+                      <button 
+                        onClick={() => {
+                          navigator.clipboard.writeText(aiResult);
+                          alert("Task list copied!");
+                        }}
+                        className="hover:underline"
+                      >
+                        Copy
+                      </button>
+                    </div>
                   </div>
                   {aiResult}
                 </div>
-              ) : <div />}
+              ) : null}
 
-              {/* Result 2 */}
+              {/* Result 2: Summary */}
               {aiSummaryResult ? (
                 <div className="p-4 rounded-lg bg-zinc-950/40 border border-zinc-850 text-[11px] text-zinc-300 whitespace-pre-wrap leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 border-dashed">
                   <div className="flex justify-between items-center pb-2 border-b border-zinc-900 mb-2 text-[9px] text-emerald-400 uppercase tracking-widest font-bold font-sans">
@@ -720,9 +990,9 @@ export default function DashboardPage() {
                   </div>
                   {aiSummaryResult}
                 </div>
-              ) : <div />}
+              ) : null}
 
-              {/* Result 3 */}
+              {/* Result 3: Sprint */}
               {aiSprintResult ? (
                 <div className="p-4 rounded-lg bg-zinc-950/40 border border-zinc-850 text-[11px] text-zinc-300 whitespace-pre-wrap leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 border-dashed">
                   <div className="flex justify-between items-center pb-2 border-b border-zinc-900 mb-2 text-[9px] text-violet-400 uppercase tracking-widest font-bold font-sans">
@@ -739,7 +1009,54 @@ export default function DashboardPage() {
                   </div>
                   {aiSprintResult}
                 </div>
-              ) : <div />}
+              ) : null}
+
+              {/* Result 4: Risk Assessor */}
+              {aiRiskResult ? (
+                <div className="p-4 rounded-lg bg-zinc-950/40 border border-zinc-850 text-[11px] text-zinc-300 whitespace-pre-wrap leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 border-dashed">
+                  <div className="flex justify-between items-center pb-2 border-b border-zinc-900 mb-2 text-[9px] text-amber-500 uppercase tracking-widest font-bold font-sans">
+                    <span>Risk Assessment</span>
+                    <button 
+                      onClick={() => {
+                        navigator.clipboard.writeText(aiRiskResult);
+                        alert("Risk assessment copied!");
+                      }}
+                      className="hover:underline"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  {aiRiskResult}
+                </div>
+              ) : null}
+
+              {/* Result 5: Meeting Parser */}
+              {aiMeetingResult ? (
+                <div className="p-4 rounded-lg bg-zinc-950/40 border border-zinc-850 text-[11px] text-zinc-300 whitespace-pre-wrap leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 border-dashed">
+                  <div className="flex justify-between items-center pb-2 border-b border-zinc-900 mb-2 text-[9px] text-cyan-400 uppercase tracking-widest font-bold font-sans">
+                    <span>Extracted Backlog</span>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => handleImportTasks(aiMeetingResult)}
+                        className="hover:underline text-cyan-400 font-bold"
+                      >
+                        Import to Project
+                      </button>
+                      <span className="text-zinc-750">|</span>
+                      <button 
+                        onClick={() => {
+                          navigator.clipboard.writeText(aiMeetingResult);
+                          alert("Action items copied!");
+                        }}
+                        className="hover:underline"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                  {aiMeetingResult}
+                </div>
+              ) : null}
 
             </div>
           )}
@@ -1275,6 +1592,32 @@ export default function DashboardPage() {
                   </select>
                 </div>
 
+                {/* Priority and Due Date controls */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider block">Priority</label>
+                    <select
+                      className="w-full px-3 py-2 bg-zinc-950/40 border border-zinc-800 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none text-zinc-300 text-xs rounded-xl transition-all cursor-pointer"
+                      value={taskPriority}
+                      onChange={(e) => setTaskPriority(e.target.value)}
+                    >
+                      <option value="high" className="bg-zinc-900 text-white">High</option>
+                      <option value="medium" className="bg-zinc-900 text-white">Medium</option>
+                      <option value="low" className="bg-zinc-900 text-white">Low</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider block">Due Date</label>
+                    <input
+                      type="date"
+                      className="w-full px-3 py-2 bg-zinc-950/40 border border-zinc-800 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none text-zinc-300 text-xs rounded-xl transition-all cursor-pointer"
+                      value={taskDueDate}
+                      onChange={(e) => setTaskDueDate(e.target.value)}
+                    />
+                  </div>
+                </div>
+
                 <button
                   onClick={handleCreateTask}
                   className="w-full py-2.5 rounded-xl text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-all shadow-md shadow-violet-500/10"
@@ -1426,19 +1769,30 @@ export default function DashboardPage() {
                             <td className="py-4 font-light text-[11px] text-zinc-500">
                               {task.due_date ? new Date(task.due_date).toLocaleDateString() : "No date"}
                             </td>
-                            {(selectedWorkspaceRole === "owner" || selectedWorkspaceRole === "admin") && (
-                              <td className="py-4 pr-2 text-right">
+                            <td className="py-4 pr-2 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
                                 <button
-                                  onClick={() => handleTaskDelete(task.id)}
-                                  className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/20 border border-transparent transition-all"
-                                  title="Delete task"
+                                  onClick={() => setSelectedEditingTask(task)}
+                                  className="p-1.5 rounded-lg text-zinc-500 hover:text-violet-400 hover:bg-violet-500/10 hover:border-violet-500/20 border border-transparent transition-all"
+                                  title="Edit task"
                                 >
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                   </svg>
                                 </button>
-                              </td>
-                            )}
+                                {(selectedWorkspaceRole === "owner" || selectedWorkspaceRole === "admin") && (
+                                  <button
+                                    onClick={() => handleTaskDelete(task.id)}
+                                    className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/20 border border-transparent transition-all"
+                                    title="Delete task"
+                                  >
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                           </tr>
                         );
                       })
@@ -1448,7 +1802,7 @@ export default function DashboardPage() {
               </div>
             ) : (
               /* Kanban view */
-              <KanbanBoard tasks={filteredTasks} onDragEnd={onDragEnd} onUpload={handleUpload} role={selectedWorkspaceRole} onTaskDelete={handleTaskDelete} />
+              <KanbanBoard tasks={filteredTasks} onDragEnd={onDragEnd} onUpload={handleUpload} role={selectedWorkspaceRole} onTaskDelete={handleTaskDelete} members={workspaceMembers} onTaskClick={setSelectedEditingTask} />
             )}
           </section>
         )}
@@ -1511,6 +1865,257 @@ export default function DashboardPage() {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Floating AI Chat Assistant Widget */}
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+          {chatOpen && (
+            <div className="w-80 sm:w-96 h-[500px] bg-zinc-950/95 border border-zinc-850 rounded-2xl shadow-2xl backdrop-blur-lg flex flex-col overflow-hidden mb-4 animate-in slide-in-from-bottom-5 duration-300">
+              {/* Header */}
+              <div className="p-4 bg-gradient-to-r from-indigo-900 to-violet-900 border-b border-zinc-900 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <div>
+                    <h3 className="text-xs font-bold text-white tracking-wide font-sans">AI Workspace Assistant</h3>
+                    <p className="text-[10px] text-zinc-300 font-light">Real-time Project Helper</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setChatOpen(false)}
+                  className="text-zinc-400 hover:text-white transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Chat Thread */}
+              <div className="flex-1 p-4 overflow-y-auto space-y-3 flex flex-col text-xs scrollbar-thin">
+                {chatMessages.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className={`max-w-[85%] p-3 rounded-2xl whitespace-pre-wrap leading-relaxed ${
+                      msg.sender === 'ai'
+                        ? 'bg-zinc-900/80 border border-zinc-850 text-zinc-300 rounded-tl-none self-start'
+                        : 'bg-indigo-650 text-white rounded-tr-none self-end ml-auto'
+                    }`}
+                  >
+                    {msg.text}
+                  </div>
+                ))}
+                {chatLoading && (
+                  <div className="bg-zinc-900/80 border border-zinc-850 text-zinc-400 p-3 rounded-2xl rounded-tl-none self-start flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce delay-100" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce delay-200" />
+                  </div>
+                )}
+              </div>
+
+              {/* Predefined Quick Suggestion Bubbles */}
+              <div className="px-4 py-2 border-t border-zinc-900/60 bg-zinc-950/40 flex flex-wrap gap-1.5">
+                <button
+                  onClick={() => {
+                    setChatInput("List active tasks");
+                  }}
+                  className="px-2.5 py-1 rounded-full bg-zinc-900 border border-zinc-850 hover:border-indigo-500/40 text-[9px] text-zinc-400 hover:text-indigo-400 transition-all font-light"
+                >
+                  📋 List active tasks
+                </button>
+                <button
+                  onClick={() => {
+                    setChatInput("What high-priority tasks do I have?");
+                  }}
+                  className="px-2.5 py-1 rounded-full bg-zinc-900 border border-zinc-850 hover:border-indigo-500/40 text-[9px] text-zinc-400 hover:text-indigo-400 transition-all font-light"
+                >
+                  🚨 High priority tasks
+                </button>
+              </div>
+
+              {/* Input Footer */}
+              <div className="p-3 border-t border-zinc-900/80 bg-zinc-950/80 flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Ask about active tasks..."
+                  className="flex-1 px-3 py-2 bg-zinc-900/50 border border-zinc-800 focus:border-indigo-500 outline-none text-white text-xs rounded-xl transition-all font-light"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSendChatMessage();
+                  }}
+                />
+                <button
+                  onClick={handleSendChatMessage}
+                  disabled={chatLoading || !chatInput.trim()}
+                  className="p-2 rounded-xl bg-indigo-650 hover:bg-indigo-600 text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-indigo-600/10 flex items-center justify-center"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Toggle Button */}
+          <button
+            onClick={() => setChatOpen(!chatOpen)}
+            className="h-12 w-12 rounded-full bg-gradient-to-tr from-indigo-650 to-violet-650 hover:scale-105 active:scale-95 text-white flex items-center justify-center shadow-xl shadow-indigo-500/20 border border-indigo-500/20 transition-all group relative"
+            title="Ask AI Assistant"
+          >
+            {chatOpen ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            ) : (
+              <>
+                <div className="absolute inset-0 rounded-full bg-indigo-500/10 animate-ping group-hover:hidden" />
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Task Detail / Editing Side Drawer */}
+        {selectedEditingTask && (
+          <div className="fixed inset-0 z-50 flex justify-end bg-black/65 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="w-full max-w-lg h-full p-8 bg-[#09090b]/95 border-l border-zinc-800/80 shadow-2xl flex flex-col justify-between overflow-y-auto animate-in slide-in-from-right duration-350">
+              
+              <div className="space-y-6">
+                {/* Header */}
+                <div className="flex justify-between items-center pb-4 border-b border-zinc-800/60">
+                  <div>
+                    <span className="text-[10px] font-bold text-violet-400 uppercase tracking-widest block mb-1">
+                      Task Settings & Metadata
+                    </span>
+                    <h3 className="text-lg font-bold text-white leading-tight font-sans">
+                      Edit Task Details
+                    </h3>
+                  </div>
+                  <button
+                    onClick={() => setSelectedEditingTask(null)}
+                    className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                {/* Form Fields */}
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">
+                      Task Title
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full px-3.5 py-2.5 bg-zinc-950/40 border border-zinc-800 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none text-white text-sm rounded-xl transition-all"
+                      value={editTaskTitle}
+                      onChange={(e) => setEditTaskTitle(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">
+                      Description
+                    </label>
+                    <textarea
+                      rows={4}
+                      className="w-full px-3.5 py-2.5 bg-zinc-950/40 border border-zinc-800 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none text-white text-xs placeholder-zinc-650 rounded-xl transition-all leading-relaxed"
+                      value={editTaskDescription}
+                      onChange={(e) => setEditTaskDescription(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">
+                        Status
+                      </label>
+                      <select
+                        className="w-full px-3.5 py-2.5 bg-zinc-950/40 border border-zinc-800 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none text-zinc-300 text-xs rounded-xl transition-all cursor-pointer"
+                        value={editTaskStatus}
+                        onChange={(e) => setEditTaskStatus(e.target.value)}
+                      >
+                        <option value="todo" className="bg-zinc-900 text-white">To Do</option>
+                        <option value="in_progress" className="bg-zinc-900 text-white">In Progress</option>
+                        <option value="done" className="bg-zinc-900 text-white">Done</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">
+                        Priority
+                      </label>
+                      <select
+                        className="w-full px-3.5 py-2.5 bg-zinc-950/40 border border-zinc-800 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none text-zinc-300 text-xs rounded-xl transition-all cursor-pointer"
+                        value={editTaskPriority}
+                        onChange={(e) => setEditTaskPriority(e.target.value)}
+                      >
+                        <option value="high" className="bg-zinc-900 text-white">High</option>
+                        <option value="medium" className="bg-zinc-900 text-white">Medium</option>
+                        <option value="low" className="bg-zinc-900 text-white">Low</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">
+                        Assignee
+                      </label>
+                      <select
+                        className="w-full px-3.5 py-2.5 bg-zinc-950/40 border border-zinc-800 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none text-zinc-300 text-xs rounded-xl transition-all cursor-pointer"
+                        value={editTaskAssignedTo}
+                        onChange={(e) => setEditTaskAssignedTo(e.target.value === "" ? "" : Number(e.target.value))}
+                      >
+                        <option value="" className="bg-zinc-900 text-zinc-400">Unassigned</option>
+                        {workspaceMembers.map((member) => (
+                          <option key={member.id} value={member.id} className="bg-zinc-900 text-white">
+                            {member.username} ({member.role})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">
+                        Due Date
+                      </label>
+                      <input
+                        type="date"
+                        className="w-full px-3.5 py-2.5 bg-zinc-950/40 border border-zinc-800 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none text-zinc-300 text-xs rounded-xl transition-all cursor-pointer"
+                        value={editTaskDueDate}
+                        onChange={(e) => setEditTaskDueDate(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions Footer */}
+              <div className="pt-6 border-t border-zinc-800/60 flex items-center gap-4 mt-8">
+                <button
+                  onClick={() => setSelectedEditingTask(null)}
+                  className="flex-1 py-3 rounded-xl text-sm font-semibold bg-zinc-900 hover:bg-zinc-850 text-zinc-400 hover:text-white border border-zinc-800 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpdateTask}
+                  disabled={isUpdatingTask || !editTaskTitle.trim()}
+                  className="flex-1 py-3 rounded-xl text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-all shadow-md shadow-violet-500/10 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isUpdatingTask ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+
             </div>
           </div>
         )}
