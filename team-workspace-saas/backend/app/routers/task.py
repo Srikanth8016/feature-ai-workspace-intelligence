@@ -10,7 +10,7 @@ from app.models.task_attachment import TaskAttachment
 from app.models.notification import Notification
 from app.models.activity_log import ActivityLog
 from app.models.user import User
-from app.schemas.task_schema import TaskCreate
+from app.schemas.task_schema import TaskCreate, TaskUpdate
 from app.auth.oauth2 import get_current_user
 from app.websocket.manager import manager
 import asyncio
@@ -116,30 +116,70 @@ def get_tasks(
     return task_list
 
 @router.put("/{task_id}")
-async def update_task_status(
+async def update_task(
     task_id: int,
-    status: str,
+    request: Optional[TaskUpdate] = None,
+    status: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    task = db.query(Task).filter(
-        Task.id == task_id
-    ).first()
-
+    task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
-        return {
-            "error": "Task not found"
-        }
+        raise HTTPException(status_code=404, detail="Task not found")
 
-    task.status = status
-    
-    # Log activity
-    activity = ActivityLog(
-        task_id=task.id,
-        user_id=current_user.id,
-        action=f"moved task to {status}"
-    )
-    db.add(activity)
+    actions = []
+
+    # Handle DnD update via query param (status)
+    if status is not None:
+        if task.status != status:
+            actions.append(f"moved task to {status}")
+            task.status = status
+
+    # Handle full update via request body
+    if request is not None:
+        if request.title is not None and task.title != request.title:
+            actions.append(f"renamed task to '{request.title}'")
+            task.title = request.title
+        if request.description is not None and task.description != request.description:
+            actions.append("updated the description")
+            task.description = request.description
+        if request.status is not None and task.status != request.status:
+            actions.append(f"moved task to {request.status}")
+            task.status = request.status
+        if request.priority is not None and task.priority != request.priority:
+            actions.append(f"changed priority to {request.priority}")
+            task.priority = request.priority
+        if request.due_date is not None and task.due_date != request.due_date:
+            actions.append("updated target due date")
+            task.due_date = request.due_date
+        if request.assigned_to is not None and task.assigned_to != request.assigned_to:
+            if request.assigned_to:
+                assignee = db.query(User).filter(User.id == request.assigned_to).first()
+                assignee_name = assignee.username if assignee else "someone"
+                actions.append(f"assigned task to {assignee_name}")
+                
+                # Notify new assignee
+                notification = Notification(
+                    message=f"You were assigned task: {task.title}",
+                    user_id=request.assigned_to
+                )
+                db.add(notification)
+            else:
+                actions.append("unassigned the task")
+            task.assigned_to = request.assigned_to
+
+    if not actions:
+        return {"message": "No changes detected"}
+
+    # Log activities
+    for action in actions:
+        activity = ActivityLog(
+            task_id=task.id,
+            user_id=current_user.id,
+            action=action
+        )
+        db.add(activity)
+
     db.commit()
 
     asyncio.create_task(
@@ -147,7 +187,7 @@ async def update_task_status(
     )
 
     return {
-        "message": "Task updated"
+        "message": "Task updated successfully"
     }
 
 @router.delete("/{task_id}")

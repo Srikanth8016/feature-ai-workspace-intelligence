@@ -71,3 +71,68 @@ def ai_generate_sprint(
     return {
         "response": result
     }
+
+class ChatRequest(BaseModel):
+    message: str
+    workspace_id: int
+
+@router.post("/chat")
+def ai_chat(
+    request: ChatRequest,
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    workspace = db.query(Workspace).filter(Workspace.id == request.workspace_id).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    tasks = db.query(Task).join(Project).filter(Project.workspace_id == request.workspace_id).all()
+    tasks_text = "\n".join([
+        f"- [{t.status}] {t.title} (Priority: {t.priority}, Due: {t.due_date})"
+        for t in tasks
+    ]) or "No active tasks in this workspace."
+    
+    from app.services.ai_service import generate_chat_response
+    result = generate_chat_response(request.message, tasks_text)
+    
+    return {
+        "response": result
+    }
+
+@router.post("/predict-risks/{workspace_id}")
+def ai_predict_risks(
+    workspace_id: int,
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    tasks = db.query(Task).join(Project).filter(Project.workspace_id == workspace_id).all()
+    tasks_text = "\n".join([
+        f"- [{t.status}] {t.title} (Priority: {t.priority}, Due: {t.due_date})"
+        for t in tasks
+    ]) or "No active tasks in this workspace."
+    
+    from app.services.ai_service import generate_risk_analysis
+    result = generate_risk_analysis(tasks_text)
+    
+    return {
+        "response": result
+    }
+
+class MeetingRequest(BaseModel):
+    transcript: str
+
+@router.post("/parse-meeting")
+def ai_parse_meeting(
+    request: MeetingRequest,
+    current_user = Depends(get_current_user)
+):
+    from app.services.ai_service import generate_meeting_tasks
+    result = generate_meeting_tasks(request.transcript)
+    
+    return {
+        "response": result
+    }
