@@ -36,7 +36,14 @@ export default function RegisterPage() {
       }, 2000);
     } catch (err: any) {
       console.error(err);
-      setError(err.response?.data?.detail || "Registration failed. Username or email might be taken.");
+      const detail = err.response?.data?.detail;
+      if (detail) {
+        setError(detail);
+      } else if (err.response?.status === 400) {
+        setError("Username or email is already registered.");
+      } else {
+        setError("Registration failed. Please try again.");
+      }
     } finally {
       setIsLoading(false);
     }
