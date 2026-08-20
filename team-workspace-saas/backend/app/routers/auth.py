@@ -16,11 +16,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    # bcrypt has a 72-byte limit; truncate to avoid errors with newer bcrypt versions
+    return pwd_context.hash(password[:72])
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
-        return pwd_context.verify(plain_password, hashed_password)
+        return pwd_context.verify(plain_password[:72], hashed_password)
     except Exception:
         pass
     # Fallback to plaintext comparison to support pre-existing test accounts
@@ -46,20 +47,26 @@ def register(username: str, email: str, password: str, db: Session = Depends(get
     if not EMAIL_REGEX.match(email):
         raise HTTPException(status_code=400, detail="Invalid email format")
 
-    existing_user = db.query(User).filter(User.username == username).first()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Username already registered")
-        
-    existing_email = db.query(User).filter(User.email == email).first()
-    if existing_email:
-        raise HTTPException(status_code=400, detail="Email already registered")
-        
-    hashed = get_password_hash(password)
-    new_user = User(username=username, email=email, hashed_password=hashed)
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return {"username": new_user.username, "email": new_user.email}
+    try:
+        existing_user = db.query(User).filter(User.username == username).first()
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Username already registered")
+            
+        existing_email = db.query(User).filter(User.email == email).first()
+        if existing_email:
+            raise HTTPException(status_code=400, detail="Email already registered")
+            
+        hashed = get_password_hash(password)
+        new_user = User(username=username, email=email, hashed_password=hashed)
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        return {"username": new_user.username, "email": new_user.email}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Registration error: {str(e)}")
 
 @router.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):

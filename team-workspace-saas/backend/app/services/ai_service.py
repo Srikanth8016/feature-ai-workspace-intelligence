@@ -1,14 +1,14 @@
-from openai import OpenAI
+from groq import Groq
 from app.core.config import settings
 
-client = OpenAI(
-    api_key=settings.OPENAI_API_KEY
+client = Groq(
+    api_key=settings.GROQ_API_KEY
 )
 
 def generate_tasks(prompt: str):
     try:
         completion = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {
                     "role": "system",
@@ -62,7 +62,7 @@ def generate_tasks(prompt: str):
 def generate_progress_summary(tasks_text: str, activities_text: str) -> str:
     try:
         completion = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {
                     "role": "system",
@@ -93,7 +93,7 @@ def generate_progress_summary(tasks_text: str, activities_text: str) -> str:
 def generate_sprint_plan(scope: str) -> str:
     try:
         completion = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {
                     "role": "system",
@@ -148,7 +148,7 @@ def generate_sprint_plan(scope: str) -> str:
 def generate_chat_response(message: str, context_text: str) -> str:
     try:
         completion = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {
                     "role": "system",
@@ -205,7 +205,7 @@ def generate_chat_response(message: str, context_text: str) -> str:
 def generate_risk_analysis(tasks_text: str) -> str:
     try:
         completion = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {
                     "role": "system",
@@ -250,7 +250,7 @@ def generate_risk_analysis(tasks_text: str) -> str:
 def generate_meeting_tasks(transcript: str) -> str:
     try:
         completion = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {
                     "role": "system",

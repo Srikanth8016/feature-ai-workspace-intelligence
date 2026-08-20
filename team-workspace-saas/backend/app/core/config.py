@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = os.getenv("SECRET_KEY", "your-super-secret-key")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 
     class Config:
         env_file = loaded_env or ".env"
