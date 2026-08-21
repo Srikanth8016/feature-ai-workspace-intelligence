@@ -6,6 +6,7 @@ from app.models.project import Project
 from app.models.workspace_member import WorkspaceMember
 from app.schemas.project_schema import ProjectCreate
 from app.auth.oauth2 import get_current_user
+from app.core.limits import check_project_limit
 
 router = APIRouter()
 
@@ -30,6 +31,12 @@ def create_project(
 
     if not membership:
         raise HTTPException(status_code=403, detail="Not authorized to create a project in this workspace")
+
+    # Enforce plan project limit
+    current_count = db.query(Project).filter(
+        Project.workspace_id == request.workspace_id
+    ).count()
+    check_project_limit(current_user, current_count)
 
     project = Project(
         name=request.name,

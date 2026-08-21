@@ -8,10 +8,11 @@ from app.models.invitation import Invitation
 from app.models.workspace_member import WorkspaceMember
 from app.models.user import User
 from app.models.notification import Notification
+from app.models.workspace import Workspace
 from app.schemas.invitation_schema import InvitationCreate
 from app.auth.oauth2 import get_current_user
 from app.core.permissions import has_permission
-from app.models.workspace import Workspace
+from app.services.email_service import send_workspace_invitation_email
 
 router = APIRouter()
 
@@ -87,8 +88,20 @@ def invite_user(
     db.add(invitation)
     db.commit()
 
+    # Get workspace name for the email
+    workspace = db.query(Workspace).filter(Workspace.id == request.workspace_id).first()
+    workspace_name = workspace.name if workspace else "the workspace"
+
+    # Send invitation email
+    send_workspace_invitation_email(
+        to_email=request.email,
+        invite_token=token,
+        workspace_name=workspace_name,
+        invited_by_username=current_user.username
+    )
+
     return {
-        "message": "Invitation created",
+        "message": "Invitation sent",
         "invite_token": token
     }
 

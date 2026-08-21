@@ -15,6 +15,7 @@ from app.routers import notification
 from app.routers import invitation
 from app.routers import analytics
 from app.routers import ai
+from app.routers import billing
 
 # Automatic Database Table Creation Fallback
 from app.db.database import Base, engine
@@ -28,6 +29,7 @@ from app.models.task_comment import TaskComment
 from app.models.notification import Notification
 from app.models.invitation import Invitation
 from app.models.activity_log import ActivityLog
+from app.models.password_reset import PasswordResetToken
 
 Base.metadata.create_all(bind=engine)
 
@@ -128,6 +130,12 @@ app.include_router(
     ai.router,
     prefix="/ai",
     tags=["AI"]
+)
+
+app.include_router(
+    billing.router,
+    prefix="/billing",
+    tags=["Billing"]
 )
 
 from app.routers import ws

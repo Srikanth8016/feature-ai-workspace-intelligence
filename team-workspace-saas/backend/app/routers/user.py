@@ -15,7 +15,9 @@ def current_user(
 ):
     return {
         "logged_in_user": user.username,
-        "email": user.email
+        "email": user.email,
+        "plan": getattr(user, "plan", "free"),
+        "subscription_status": getattr(user, "subscription_status", "inactive"),
     }
 
 @router.put("/me")

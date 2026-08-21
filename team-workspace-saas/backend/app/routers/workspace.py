@@ -14,6 +14,8 @@ from app.auth.oauth2 import (
     get_current_user
 )
 
+from app.core.limits import check_workspace_limit
+
 router = APIRouter()
 
 def get_db():
@@ -31,6 +33,13 @@ def create_workspace(
         get_current_user
     )
 ):
+    # Enforce plan workspace limit
+    current_count = db.query(WorkspaceMember).filter(
+        WorkspaceMember.user_id == current_user.id,
+        WorkspaceMember.role == "owner"
+    ).count()
+    check_workspace_limit(current_user, current_count)
+
     workspace = Workspace(
         name=request.name,
         owner_id=current_user.id
@@ -66,9 +75,13 @@ def get_workspaces(
         WorkspaceMember.user_id == current_user.id
     ).all()
 
+    workspace_ids = [m.workspace_id for m in memberships]
+    workspaces = db.query(Workspace).filter(Workspace.id.in_(workspace_ids)).all() if workspace_ids else []
+    ws_by_id = {ws.id: ws for ws in workspaces}
+
     res = []
     for member in memberships:
-        ws = db.query(Workspace).filter(Workspace.id == member.workspace_id).first()
+        ws = ws_by_id.get(member.workspace_id)
         if ws:
             res.append({
                 "id": ws.id,
@@ -96,9 +109,13 @@ def get_workspace_members(
         WorkspaceMember.workspace_id == workspace_id
     ).all()
     
+    user_ids = [m.user_id for m in memberships]
+    users = db.query(User).filter(User.id.in_(user_ids)).all() if user_ids else []
+    users_by_id = {u.id: u for u in users}
+    
     res = []
     for m in memberships:
-        user = db.query(User).filter(User.id == m.user_id).first()
+        user = users_by_id.get(m.user_id)
         if user:
             res.append({
                 "id": user.id,

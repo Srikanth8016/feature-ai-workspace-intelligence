@@ -1,13 +1,13 @@
-from groq import Groq
+from groq import AsyncGroq
 from app.core.config import settings
 
-client = Groq(
+client = AsyncGroq(
     api_key=settings.GROQ_API_KEY
 )
 
-def generate_tasks(prompt: str):
+async def generate_tasks(prompt: str):
     try:
-        completion = client.chat.completions.create(
+        completion = await client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {
@@ -59,9 +59,9 @@ def generate_tasks(prompt: str):
             "5. Prepare code compilation and deploy package bundle to production cloud"
         )
 
-def generate_progress_summary(tasks_text: str, activities_text: str) -> str:
+async def generate_progress_summary(tasks_text: str, activities_text: str) -> str:
     try:
-        completion = client.chat.completions.create(
+        completion = await client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {
@@ -90,9 +90,9 @@ def generate_progress_summary(tasks_text: str, activities_text: str) -> str:
             "* **None Detected**: Team bandwidth is fully optimized; milestone deadlines are aligned on schedule."
         )
 
-def generate_sprint_plan(scope: str) -> str:
+async def generate_sprint_plan(scope: str) -> str:
     try:
-        completion = client.chat.completions.create(
+        completion = await client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {
@@ -145,9 +145,9 @@ def generate_sprint_plan(scope: str) -> str:
             "  3. Deploy clean docker/server builds to production environments."
         )
 
-def generate_chat_response(message: str, context_text: str) -> str:
+async def generate_chat_response(message: str, context_text: str) -> str:
     try:
-        completion = client.chat.completions.create(
+        completion = await client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {
@@ -202,9 +202,9 @@ def generate_chat_response(message: str, context_text: str) -> str:
             "How can I assist your team today?"
         )
 
-def generate_risk_analysis(tasks_text: str) -> str:
+async def generate_risk_analysis(tasks_text: str) -> str:
     try:
-        completion = client.chat.completions.create(
+        completion = await client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {
@@ -247,9 +247,9 @@ def generate_risk_analysis(tasks_text: str) -> str:
             "2. Conduct a quick sync to move 'To Do' items into 'In Progress'."
         )
 
-def generate_meeting_tasks(transcript: str) -> str:
+async def generate_meeting_tasks(transcript: str) -> str:
     try:
-        completion = client.chat.completions.create(
+        completion = await client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {

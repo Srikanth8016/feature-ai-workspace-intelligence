@@ -1,5 +1,5 @@
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.db.database import SessionLocal
@@ -28,6 +28,7 @@ def get_db():
 @router.post("/")
 async def create_task(
     request: TaskCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -74,9 +75,7 @@ async def create_task(
         db.commit()
 
     # Broadcast task creation in real-time
-    asyncio.create_task(
-        manager.broadcast("task_updated")
-    )
+    background_tasks.add_task(manager.broadcast, project.workspace_id, "task_updated")
 
     return {
         "message": "Task created"
@@ -92,9 +91,18 @@ def get_tasks(
         Task.project_id == project_id
     ).all()
 
+    task_ids = [task.id for task in tasks]
+    all_attachments = db.query(TaskAttachment).filter(
+        TaskAttachment.task_id.in_(task_ids)
+    ).all() if task_ids else []
+
+    attachments_by_task = {}
+    for att in all_attachments:
+        attachments_by_task.setdefault(att.task_id, []).append(att)
+
     task_list = []
     for task in tasks:
-        attachments = db.query(TaskAttachment).filter(TaskAttachment.task_id == task.id).all()
+        attachments = attachments_by_task.get(task.id, [])
         task_list.append({
             "id": task.id,
             "title": task.title,
@@ -121,6 +129,7 @@ async def update_task(
     task_id: int,
     request: Optional[TaskUpdate] = None,
     status: Optional[str] = None,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -183,9 +192,9 @@ async def update_task(
 
     db.commit()
 
-    asyncio.create_task(
-        manager.broadcast("task_updated")
-    )
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    if project:
+        background_tasks.add_task(manager.broadcast, project.workspace_id, "task_updated")
 
     return {
         "message": "Task updated successfully"
@@ -194,6 +203,7 @@ async def update_task(
 @router.delete("/{task_id}")
 async def delete_task(
     task_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -227,9 +237,7 @@ async def delete_task(
     db.delete(task)
     db.commit()
 
-    asyncio.create_task(
-        manager.broadcast("task_updated")
-    )
+    background_tasks.add_task(manager.broadcast, workspace.id, "task_updated")
 
     return {"message": "Task deleted successfully"}
 
@@ -240,9 +248,13 @@ def get_task_activity(
     current_user = Depends(get_current_user)
 ):
     logs = db.query(ActivityLog).filter(ActivityLog.task_id == task_id).order_by(ActivityLog.created_at.desc()).all()
+    user_ids = list({log.user_id for log in logs})
+    users = db.query(User).filter(User.id.in_(user_ids)).all() if user_ids else []
+    users_by_id = {u.id: u for u in users}
+
     res = []
     for log in logs:
-        user = db.query(User).filter(User.id == log.user_id).first()
+        user = users_by_id.get(log.user_id)
         res.append({
             "id": log.id,
             "action": log.action,

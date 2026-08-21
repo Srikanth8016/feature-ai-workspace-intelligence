@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.db.database import SessionLocal
 from app.models.task_comment import TaskComment
+from app.models.task import Task
+from app.models.project import Project
 from app.schemas.comment_schema import CommentCreate
 from app.auth.oauth2 import get_current_user
 from app.websocket.manager import manager
@@ -21,6 +23,7 @@ def get_db():
 async def create_comment(
     task_id: int,
     request: CommentCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -34,9 +37,11 @@ async def create_comment(
     db.commit()
 
     # Trigger real-time task update broadcast to sync comments drawer
-    asyncio.create_task(
-        manager.broadcast("task_updated")
-    )
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if task:
+        project = db.query(Project).filter(Project.id == task.project_id).first()
+        if project:
+            background_tasks.add_task(manager.broadcast, project.workspace_id, "task_updated")
 
     return {
         "message": "Comment added"
