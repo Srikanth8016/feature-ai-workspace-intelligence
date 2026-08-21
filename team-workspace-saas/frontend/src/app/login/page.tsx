@@ -128,6 +128,10 @@ export default function LoginPage() {
         </form>
 
         <div className="text-center mt-6 text-xs text-zinc-400">
+          <Link href="/forgot-password" className="text-zinc-500 hover:text-zinc-300 transition-colors">
+            Forgot your password?
+          </Link>
+          <span className="mx-2 text-zinc-700">·</span>
           Don't have an account?{" "}
           <Link href="/register" className="text-indigo-400 hover:text-indigo-300 font-semibold transition-colors">
             Create an Account

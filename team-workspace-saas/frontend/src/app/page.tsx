@@ -18,11 +18,14 @@ export default function Home() {
             </svg>
           </div>
           <span className="font-bold text-lg bg-gradient-to-r from-white to-zinc-400 bg-clip-text text-transparent tracking-wide font-sans">
-            Workspace
+            TeamFlow
           </span>
         </div>
 
         <div className="flex items-center gap-4">
+          <Link href="/pricing" className="px-4 py-2 rounded-xl text-sm font-semibold text-zinc-400 hover:text-white transition-colors">
+            Pricing
+          </Link>
           <Link
             href="/login"
             className="px-4 py-2 rounded-xl text-sm font-semibold text-zinc-400 hover:text-white transition-colors"
@@ -30,7 +33,7 @@ export default function Home() {
             Sign In
           </Link>
           <Link
-            href="/login"
+            href="/register"
             className="px-4 py-2.5 rounded-xl text-sm font-semibold bg-white hover:bg-zinc-200 text-black transition-all shadow-md shadow-white/10"
           >
             Get Started

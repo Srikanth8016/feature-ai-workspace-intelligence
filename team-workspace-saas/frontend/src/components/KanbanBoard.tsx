@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, memo } from "react";
 import Cookies from "js-cookie";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 
@@ -35,7 +35,7 @@ const getPriorityColor = (priority: string) => {
   }
 };
 
-function TaskCard({ task, onUpload, role, onDelete, members, onTaskClick }: any) {
+const TaskCard = memo(function TaskCard({ task, onUpload, role, onDelete, members, onTaskClick }: any) {
   const [localFile, setLocalFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -328,9 +328,9 @@ function TaskCard({ task, onUpload, role, onDelete, members, onTaskClick }: any)
       </div>
     </div>
   );
-}
+});
 
-export default function KanbanBoard({ tasks, onDragEnd, onUpload, role, onTaskDelete, members, onTaskClick }: any) {
+const KanbanBoard = memo(function KanbanBoard({ tasks, onDragEnd, onUpload, role, onTaskDelete, members, onTaskClick }: any) {
   return (
     <DragDropContext onDragEnd={onDragEnd}>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
@@ -393,4 +393,6 @@ export default function KanbanBoard({ tasks, onDragEnd, onUpload, role, onTaskDe
       </div>
     </DragDropContext>
   );
-}
+});
+
+export default KanbanBoard;
